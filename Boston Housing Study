@@ -1,0 +1,367 @@
+# seed value for random number generators to obtain reproducible results
+RANDOM_SEED = 1
+# although we standardize X and y variables on input,
+# we will fit the intercept term in the models
+# Expect fitted values to be close to zero
+SET_FIT_INTERCEPT = True
+
+# import base packages into the namespace for this program
+import numpy as np
+import pandas as pd
+%matplotlib inline
+import matplotlib.pyplot as plt
+import seaborn as sns
+# modeling routines from Scikit Learn packages
+from sklearn.preprocessing import OneHotEncoder
+import sklearn.linear_model 
+from sklearn.linear_model import LinearRegression, Ridge, Lasso, ElasticNet
+from sklearn.metrics import mean_squared_error, r2_score  
+from math import sqrt  # for root mean-squared error calculation
+
+# read data for the Boston Housing Study
+# creating data frame restdata
+boston_input = pd.read_csv('boston.csv')
+
+# check the pandas DataFrame object boston_input
+print('\nboston DataFrame (first and last five rows):')
+print(boston_input.head())
+print(boston_input.tail())
+
+print('\nGeneral description of the boston_input DataFrame:')
+print(boston_input.info())
+
+#converting neighborhood into number
+boston_input_cat = boston_input[['neighborhood']]
+boston_input_cat.head()
+
+from sklearn.preprocessing import OneHotEncoder
+
+cat_encoder = OneHotEncoder(sparse = False)
+boston_input_cat_1_hot = cat_encoder.fit_transform(boston_input_cat)
+boston_input_cat_1_hot
+cat_encoder.categories_
+
+# drop neighborhood from the data being considered
+boston_num = boston_input.drop('neighborhood', 1)
+print('\nGeneral description of the boston DataFrame:')
+print(boston_num.info())
+
+print('\nDescriptive statistics of the boston DataFrame:')
+print(boston_num.describe())
+
+boston_num.hist(bins=50, figsize=(20,15))
+plt.show()
+
+#Since Median housing value is the target variable. Lets explore it further and see its correlation with other variables. 
+corr_matrix = boston_num.corr()
+corr_matrix['mv'].sort_values(ascending=False)
+
+def corr_chart(df_corr):
+    corr=df_corr.corr()
+    #screen top half to get a triangle
+    top = np.zeros_like(corr, dtype=np.bool)
+    top[np.triu_indices_from(top)] = True
+    fig=plt.figure()
+    fig, ax = plt.subplots(figsize=(12,12))
+    sns.heatmap(corr, mask=top, cmap='coolwarm', 
+        center = 0, square=True, 
+        linewidths=.5, cbar_kws={'shrink':.5}, 
+        annot = True, annot_kws={'size': 9}, fmt = '.3f')           
+    plt.xticks(rotation=45) # rotate variable labels on columns (x axis)
+    plt.yticks(rotation=0) # use horizontal variable labels on rows (y axis)
+    plt.title('Correlation Heat Map')   
+    plt.savefig('plot-corr-map.pdf', 
+        bbox_inches = 'tight', dpi=None, facecolor='w', edgecolor='b', 
+        orientation='portrait', papertype=None, format=None, 
+        transparent=True, pad_inches=0.25)      
+
+np.set_printoptions(precision=3)
+
+non_bin = ["mv", "crim", "zn", "indus", "nox", "rooms", "age", "dis", "rad", "tax", "ptratio", "lstat"]
+corr_chart(df_corr = boston_num[non_bin]) 
+
+attributes = ['crim', 'zn','indus','nox','rooms','age','dis','rad','tax','ptratio','lstat']
+
+for att in attributes:
+    boston_num.plot(kind='scatter',x=att,y='mv',alpha=0.5)
+
+#lets look into outliers
+from scipy import stats
+
+fig, axs = plt.subplots(ncols=7, nrows=2, figsize=(20, 10))
+index = 0
+axs = axs.flatten()
+for k,v in boston_num.items():
+    sns.boxplot(y=k, data=boston_num, ax=axs[index])
+    index += 1
+plt.tight_layout(pad=0.4, w_pad=0.5, h_pad=5.0)
+
+for k, v in boston_num.items():
+    q1 = v.quantile(0.25)
+    q3 = v.quantile(0.75)
+    irq = q3 - q1
+    v_col = v[(v <= q1 - 3.0 * irq) | (v >= q3 + 3.0 * irq)]
+    perc = np.shape(v_col)[0] * 100.0 / np.shape(boston_num)[0]
+    print("Column %s outliers = %.2f%%" % (k, perc))
+    
+#MV outliers
+boston = boston_num[~(boston_num['mv'] >= 40)]
+boston = boston[~(boston_num['crim'] >= 9.096)]   #Based on Q3 + 1.5*IQR
+boston = boston[~(boston_num['zn'] >= 31.75)]    #Based on Q3 + 1.5*IQR
+print(np.shape(boston))
+
+#lets look into outliers
+from scipy import stats
+
+fig, axs = plt.subplots(ncols=7, nrows=2, figsize=(20, 10))
+index = 0
+axs = axs.flatten()
+for k,v in boston_num.items():
+    sns.boxplot(y=k, data=boston_num, ax=axs[index])
+    index += 1
+plt.tight_layout(pad=0.4, w_pad=0.5, h_pad=5.0)
+
+# set up preliminary data for data for fitting the models 
+# the first column is the median housing value response
+# the remaining columns are the explanatory variables
+prelim_model_data = np.array([boston_num.mv,\
+    boston_num.crim,\
+    boston_num.zn,\
+    boston_num.indus,\
+    boston_num.chas,\
+    boston_num.nox,\
+    boston_num.rooms,\
+    boston_num.age,\
+    boston_num.dis,\
+    boston_num.rad,\
+    boston_num.tax,\
+    boston_num.ptratio,\
+    boston_num.lstat]).T
+    
+# dimensions of the polynomial model X input and y response
+# preliminary data before standardization
+print('\nData dimensions:', prelim_model_data.shape)
+
+# standard scores for the columns... along axis 0
+from sklearn.preprocessing import StandardScaler
+scaler = StandardScaler()
+print(scaler.fit(prelim_model_data))
+
+# show standardization constants being employed
+print(scaler.mean_)
+print(scaler.scale_)
+
+# the model data will be standardized form of preliminary model data
+model_data = scaler.fit_transform(prelim_model_data)
+
+#Converting Standardized values back to data frame
+model_dataframe = pd.DataFrame(model_data)
+my_columns = ["mv", "crim", "zn", "indus", "chas", "nox", "rooms", "age", "dis", "rad", "tax", "ptratio", "lstat"]
+model_dataframe.columns = my_columns
+
+#Used boxplots on standardized values to see where there were many outliers (i.e. crime rate)
+
+boxplot = model_dataframe.boxplot(figsize=(20,10))
+plt.savefig('Boxplot-r.pdf',
+           bbox_inches = 'tight', dpi=None, facecolor='w', edgecolor='b')
+plt.xticks(rotation='vertical')
+
+#Home on the Charles river are more pricy, though there are many expensive homes not on the Charles River. 
+#What do those homes have in common?
+
+boston.boxplot(column="mv",        # Column to plot
+                 by= "chas",         # Column to split upon
+                 figsize= (8,8))        # Figure size
+                 
+###Exploring the outlier home values not by the Charles River. 
+boston_noncharles = boston[boston['chas'] < .5] #Subset of homes not on Charles River
+#histogram = boston_noncharles['mv'].hist(grid= True, bins=10, figsize=(20,15)) 
+boston_noncharles_exp = boston[(boston['chas'] < .5) & ((boston['mv'] > 40))]
+histogram = boston_noncharles.hist(grid= True, bins=10, figsize=(20,15))
+
+from sklearn.model_selection import train_test_split 
+
+X_model = model_data[:, 0:model_data.shape[1]-1]
+mv_model = model_data[:, model_data.shape[1]-1]
+print(X_model.shape)
+print(mv_model.shape)
+
+X_train, X_test, y_train, y_test = train_test_split(X_model, mv_model, test_size= .2, random_state=RANDOM_SEED)
+print (len(X_train), len(X_test))
+
+comp_columns = ["Model", 'RMSE', 'MSE', 'Score']
+comp = pd.DataFrame(columns = comp_columns)
+
+#For loop to run the performance testing
+def perf_test(name, model, X_train, y_train, X_test, y_test):
+    model.fit(X_train, y_train)
+    y_pred = model.predict(X_test)
+    mse = mean_squared_error(y_test, y_pred)
+    rmse = np.sqrt(mse)
+    score = model.score(X_test, y_test) 
+
+    return rmse, mse, score
+
+names = ['LinReg',
+         'Ridge001',
+         'Ridge1',
+         'Ridge10',
+         'Ridge100',
+         'Ridge1000',
+         'Lasso',
+         'ElasticNet',
+         'ElasticNet001']
+models = [LinearRegression(),
+          Ridge(alpha=.001),
+          Ridge(alpha=1),
+          Ridge(alpha=10),
+          Ridge(alpha=100),
+          Ridge(alpha=1000),
+          Lasso(alpha=.001),
+          ElasticNet(alpha=.1),
+          ElasticNet(alpha=.001)]
+          
+comp = []
+for name, model in zip(names,models):
+    rmse, mse, score = perf_test(name, model, X_train, y_train, X_test, y_test )
+    result = (name, rmse, mse, score)
+    comp.append(result)
+    
+comp = pd.DataFrame(np.array(comp).reshape(len(comp),4), columns = ('Model', 'RMSE', 'MSE', 'Score'))
+comp[['RMSE', 'MSE', 'Score']]= comp[['RMSE', 'MSE', 'Score']].apply(pd.to_numeric)
+
+comp.sort_values(by = "RMSE").round(4)
+
+# Less Variables
+new_prelim_model_data = np.array([boston_num.mv,\
+    boston_num.crim,\
+    
+    boston_num.indus,\
+    boston_num.chas,\
+    boston_num.nox,\
+    boston_num.rooms,\
+    boston_num.age,\
+    
+    boston_num.rad,\
+    boston_num.tax,\
+    boston_num.ptratio,\
+    boston_num.lstat]).T
+
+new_scaler = StandardScaler()
+print(new_scaler.fit(new_prelim_model_data))
+print('\nData dimensions:', new_prelim_model_data.shape)
+
+print(new_scaler.mean_)
+print(new_scaler.scale_)
+
+# the model data will be standardized form of preliminary model data
+new_model_data = scaler.fit_transform(new_prelim_model_data)
+
+new_model_dataframe = pd.DataFrame(new_model_data)
+new_mv_columns = ["mv", "crim", "indus", "chas","nox", "rooms", "age", "rad", "tax", "ptratio", "lstat"]
+
+new_model_dataframe.columns = new_mv_columns
+
+new_X_model = new_model_data[:, 0:new_model_data.shape[1]-1]
+new_mv_model = new_model_data[:, new_model_data.shape[1]-1]
+print(new_X_model.shape)
+print(new_mv_model.shape)
+
+X_train2, X_test2, y_train2, y_test2 = train_test_split(new_X_model, new_mv_model, test_size= .2, random_state=RANDOM_SEED)
+print (len(X_train2), len(X_test2))
+
+names2 = ['LV_LinReg',
+         'LV_Ridge001',
+         'LV_Ridge1',
+         'LV_Ridge10',
+         'LV_Ridge100',
+         'LV_Ridge1000',
+         'LV_Lasso001',
+         'LV_ElasticNet',
+         'LV_ElasticNet01']
+models2 = [LinearRegression(),
+          Ridge(alpha=.001),
+          Ridge(alpha=1),
+          Ridge(alpha=10),
+          Ridge(alpha=100),
+          Ridge(alpha=1000),
+          Lasso(alpha=.001),
+          ElasticNet(alpha=.1),
+          ElasticNet(alpha=.01)]
+          
+#Run perf_test with the new train and test sets.
+new_comp = []
+for name, model in zip(names2,models2):
+    rmse, mse, score = perf_test(name, model, X_train2, y_train2, X_test2, y_test2 )
+    result2 = (name, rmse, mse, score)
+    new_comp.append(result2)
+    
+new_comp = pd.DataFrame(np.array(new_comp).reshape(len(new_comp),4), columns = ('Model', 'RMSE', 'MSE', 'Score'))
+
+new_comp[['RMSE', 'MSE', 'Score']]= new_comp[['RMSE', 'MSE', 'Score']].apply(pd.to_numeric)
+
+new_comp.sort_values(by = "RMSE").round(4)
+
+from sklearn.model_selection import KFold
+def perf_test_noplot(name, model, X_train, y_train, X_test, y_test):
+    model.fit(X_train, y_train)
+    y_pred = model.predict(X_test)
+    mse = mean_squared_error(y_test, y_pred)
+    rmse = np.sqrt(mse)
+    score = model.score(X_test, y_test) 
+
+    return rmse, mse, score
+    
+
+folds = 10
+kfcomp = []  
+kf = KFold(n_splits = folds, shuffle=False, random_state = RANDOM_SEED)
+
+
+fold_index = 0
+for train_index, test_index in kf.split(model_data):    
+    X_trainkf = model_data[train_index, 0:model_data.shape[1]-1] #model_data[train_index, 0:3]
+    X_testkf = model_data[test_index, 0:model_data.shape[1]-1] #model_data[test_index, 0:3]
+    y_trainkf = model_data[train_index, model_data.shape[1]-1]
+    y_testkf = model_data[test_index, model_data.shape[1]-1]
+    
+     
+    for name, model in zip(names, models):
+        rmse, mse, score = perf_test_noplot(name, model, X_trainkf, y_trainkf, X_testkf, y_testkf)
+        resultkf = (name, rmse, mse, score)
+        kfcomp.append(resultkf)
+        
+    fold_index += 1
+
+kfcomp = pd.DataFrame(np.array(kfcomp).reshape(len(kfcomp),4), columns = ('Model', 'RMSE', 'MSE', 'Score'))
+kfcomp[['RMSE', 'MSE', 'Score']]= kfcomp[['RMSE', 'MSE', 'Score']].apply(pd.to_numeric)
+kfcomp_mean = kfcomp.groupby('Model', axis=0).mean().reset_index()
+#print(kfcomp_mean.sort_values(by = "RMSE", ascending = False))
+
+kfcomp_mean.sort_values(by= "RMSE")
+
+folds = 10
+lvkfcomp = []  
+kf = KFold(n_splits = folds, shuffle=False, random_state = RANDOM_SEED)
+
+
+fold_index = 0
+for train_index, test_index in kf.split(model_data):    
+    X_trainlv = new_model_data[train_index, 0:new_model_data.shape[1]-1] #model_data[train_index, 0:3]
+    X_testlv = new_model_data[test_index, 0:new_model_data.shape[1]-1] #model_data[test_index, 0:3]
+    y_trainlv = new_model_data[train_index, new_model_data.shape[1]-1]
+    y_testlv = new_model_data[test_index, new_model_data.shape[1]-1]
+    
+     
+    for name, model in zip(names, models):
+        rmse, mse, score = perf_test_noplot(name, model, X_trainlv, y_trainlv, X_testlv, y_testlv)
+        resultlv = (name, rmse, mse, score)
+        lvkfcomp.append(resultlv)
+        
+    fold_index += 1
+
+lvkfcomp = pd.DataFrame(np.array(lvkfcomp).reshape(len(lvkfcomp),4), columns = ('Model', 'RMSE', 'MSE', 'Score'))
+lvkfcomp[['RMSE', 'MSE', 'Score']]= lvkfcomp[['RMSE', 'MSE', 'Score']].apply(pd.to_numeric)
+lvkfcomp_mean = lvkfcomp.groupby('Model', axis=0).mean().reset_index()
+#print(kfcomp_mean.sort_values(by = "RMSE", ascending = False))
+lvkfcomp_mean.sort_values(by="RMSE")
